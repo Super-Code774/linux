@@ -43,9 +43,13 @@ hardening/scripts/build.sh x86_64
 hardening/scripts/verify-config.sh /home/user/build/x86_64-hardened/.config x86_64
 hardening/scripts/boot.sh x86_64 /home/user/build/x86_64-hardened
 
-# arm64 hardened (cross via clang/LLVM)
+# arm64 hardened (cross via clang/LLVM). boot.sh needs an aarch64 busybox; it
+# defaults to BUSYBOX=/home/user/bb-arm64 (extracted from the arm64
+# busybox-static .deb). Default QEMU core is neoverse-v1 (ARMv8.4).
 hardening/scripts/build.sh arm64
 hardening/scripts/boot.sh arm64 /home/user/build/arm64-hardened
+# On QEMU >= 9.0, exercise BTI/MTE/GCS too:
+QEMU_CPU=max hardening/scripts/boot.sh arm64 /home/user/build/arm64-hardened
 
 # clean baseline (harness sanity)
 BASELINE=1 hardening/scripts/build.sh x86_64
@@ -111,17 +115,31 @@ observed (kernel trapped the injected violation and panicked).
 
 ### Tier C — arm64
 
+Boot CPU: `qemu-system-aarch64 -cpu neoverse-v1` (ARMv8.4). The Tier A common
+fragment was re-verified here too (config.gz: INIT_ON_*, FORTIFY, usercopy, etc.
+all `=y`); rows omitted for brevity — identical to the x86 Tier A column.
+
 | Feature (CONFIG_) | Sym | Set | Built | Booted | Test |
 |---|:--:|:--:|:--:|:--:|---|
-| CFI (kCFI) | ✅ | ✅ | _pending_ | _pending_ | _pending_ |
-| ARM64_PTR_AUTH(_KERNEL) | ✅ | ✅ | _pending_ | _pending_ | dmesg "pointer authentication" |
-| ARM64_BTI(_KERNEL) | ✅ | ✅ | _pending_ | _pending_ | dmesg BTI |
-| ARM64_E0PD | ✅ | ✅ | _pending_ | _pending_ | _pending_ |
-| ARM64_EPAN | ✅ | ✅ | _pending_ | _pending_ | _pending_ |
-| ARM64_MTE | ✅ | ✅ | _pending_ | _pending_ | dmesg MTE (qemu cpu max,mte=on) |
-| KASAN_HW_TAGS | ✅ | ✅ | _pending_ | _pending_ | kasan.mode boot knob |
-| ARM64_GCS | ✅ | ✅ | _pending_ | _pending_ | _pending_ |
-| RANDOMIZE_BASE | ✅ | ✅ | _pending_ | _pending_ | _pending_ |
+| CFI (kCFI) | ✅ | ✅ | ✅ | ✅ | **lkdtm CFI_FORWARD_PROTO PASS** (`CFI: Fatal exception`) |
+| HARDENED_USERCOPY | ✅ | ✅ | ✅ | ✅ | **lkdtm USERCOPY_KERNEL PASS** |
+| DEBUG_LIST + BUG_ON_DATA_CORRUPTION | ✅ | ✅ | ✅ | ✅ | **lkdtm CORRUPT_LIST_ADD PASS** |
+| ARM64_PTR_AUTH(_KERNEL) | ✅ | ✅ | ✅ | ✅ | **dmesg: "Address authentication (architected QARMA5)" + "Generic authentication" detected** (PAC active) |
+| ARM64_E0PD | ✅ | ✅ | ✅ | ✅ | config.gz ✅ (KPTI/E0PD forced on by KASLR in dmesg) |
+| ARM64_EPAN | ✅ | ✅ | ✅ | ✅ | config.gz ✅; "Privileged Access Never" detected |
+| RANDOMIZE_BASE | ✅ | ✅ | ✅ | ✅ | dmesg "KASLR enabled" |
+| ARM64_BTI(_KERNEL) | ✅ | ✅ | ✅ | ⚠️ | config.gz ✅, **built**; runtime not exercised — needs ARMv8.5 core; QEMU 8.2 asserts on v9 models (see below) |
+| ARM64_MTE | ✅ | ✅ | ✅ | ⚠️ | config.gz ✅, **built**; runtime needs ARMv8.5 MTE; QEMU 8.2 `mte=on` asserts (see below) |
+| KASAN_HW_TAGS | ✅ | ✅ | ✅ | ⚠️ | config.gz ✅, **built**; production MTE — same QEMU-8.2 blocker; `kasan.mode` boot knob documented |
+| ARM64_GCS | ✅ | ✅ | ✅ | ⚠️ | config.gz ✅, **built**; ARMv9.4 FEAT_GCS — QEMU 8.2 GCS emulation asserts; booted with `arm64.nogcs` |
+
+⚠️ = symbol set + compiled into the booting image, but the *hardware feature*
+needs a CPU generation that the available **QEMU 8.2** cannot emulate without an
+internal assert (`target/arm/internals.h:767: regime_is_user: code should not be
+reached`) on its ARMv9/MTE core models (`max`, `neoverse-n2`, `cortex-a710`).
+This is a host-tooling limitation, **not** a kernel defect: the features build
+cleanly, the image boots, and they degrade to a clean no-op on the v8.4 core
+used for the boot. On QEMU ≥ 9.0 re-run with `QEMU_CPU=max` to exercise them.
 
 ---
 
@@ -155,6 +173,24 @@ incompatible with KASAN/KFENCE, colliding with the arm64 `KASAN_HW_TAGS` profile
   a config task. Not implemented.
 
 ---
+
+## What was NOT verified at runtime, and why (honest limits)
+
+| Item | Status | Reason |
+|---|---|---|
+| arm64 BTI (kernel) runtime | built ✅, boot ⚠️ | needs ARMv8.5 core; QEMU 8.2 asserts on v9 models |
+| arm64 MTE / KASAN_HW_TAGS runtime | built ✅, boot ⚠️ | QEMU 8.2 `mte=on` + v9 cores hit `regime_is_user` assert |
+| arm64 GCS runtime | built ✅, boot ⚠️ | QEMU 8.2 GCS emulation asserts; booted with `arm64.nogcs` |
+| x86 FineIBT runtime path | built ✅, boots via kCFI | QEMU TCG exposes no HW IBT; FineIBT needs real IBT silicon |
+| x86 user shadow stack exercise | built ✅, no userspace test | needs a CET userspace program; not in the minimal initramfs |
+| Tier B SLAB_VIRTUAL | blocked ❌ | RFC does not rebase onto 7.1-rc6 (see patches/README.md) |
+| Tier B typed kmalloc caches | not attempted | gated on SLAB_VIRTUAL per keystone rule |
+| Tier D (SPTM monitor, Rust rewrite) | out of scope | no in-tree equivalent / multi-year effort |
+
+All "⚠️" arm64 items are a **QEMU version** limitation, not a kernel problem:
+the symbols are set, compiled into the image, and the kernel boots; only the
+silicon-dependent *runtime* activation could not be emulated here. They would be
+verifiable on QEMU ≥ 9.0 (or real hardware) via `QEMU_CPU=max`.
 
 ## Performance / operational notes
 

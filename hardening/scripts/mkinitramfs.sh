@@ -4,7 +4,11 @@
 # Output: <outdir>/initramfs.cpio.gz
 set -euo pipefail
 OUT="${1:?usage: mkinitramfs.sh <outdir>}"
-BB="$(command -v busybox)"
+# BUSYBOX must match the *target* arch of the kernel under test. Defaults to the
+# host busybox (fine for native x86_64); set BUSYBOX=/path/to/aarch64-busybox
+# when building an arm64 initramfs.
+BB="${BUSYBOX:-$(command -v busybox)}"
+[ -x "$BB" ] || { echo "busybox '$BB' not found/executable" >&2; exit 1; }
 ROOT="$(mktemp -d)"
 trap 'rm -rf "$ROOT"' EXIT
 mkdir -p "$ROOT"/{bin,proc,sys,dev}

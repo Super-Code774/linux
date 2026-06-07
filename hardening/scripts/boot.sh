@@ -6,7 +6,6 @@
 set -euo pipefail
 ARCH="${1:?arch}"; O="${2:?build dir}"; LKDTM="${3:-}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-bash "$HERE/mkinitramfs.sh" "$O"
 INITRD="$O/initramfs.cpio.gz"
 LOG="$O/boot-console.log"
 TIMEOUT="${TIMEOUT:-180}"
@@ -21,12 +20,22 @@ case "$ARCH" in
   arm64)
     KIMG="$O/arch/arm64/boot/Image"
     QEMU=qemu-system-aarch64
-    # cpu max => exposes PAuth/BTI/MTE so the mitigations are actually active.
-    MACHINE=(-machine virt,mte=on -cpu max -m 2048)
-    CON="console=ttyAMA0"
+    # The initramfs busybox MUST be an aarch64 binary.
+    export BUSYBOX="${BUSYBOX:-/home/user/bb-arm64}"
+    # QEMU_CPU selects the emulated core. NOTE: QEMU 8.2 asserts
+    # (regime_is_user) on the ARMv9/MTE cores (max, neoverse-n2, cortex-a710),
+    # so the default is neoverse-v1 (ARMv8.4: boots cleanly, exposes PAC).
+    # Set QEMU_CPU=max on QEMU >= 9.0 to additionally exercise BTI/MTE/GCS.
+    QCPU="${QEMU_CPU:-neoverse-v1}"
+    MTE=""; [ "$QCPU" = max ] && MTE=",mte=on"
+    MACHINE=(-machine "virt$MTE" -cpu "$QCPU" -m 2048)
+    CON="console=ttyAMA0 arm64.nogcs"
     ;;
   *) echo "bad arch"; exit 1 ;;
 esac
+
+# Build the verification initramfs AFTER arch setup so BUSYBOX (arm64) is honored.
+bash "$HERE/mkinitramfs.sh" "$O"
 
 CMDLINE="$CON panic=-1 oops=panic ${LKDTM:+}"
 [ -n "$LKDTM" ] && export LKDTM
