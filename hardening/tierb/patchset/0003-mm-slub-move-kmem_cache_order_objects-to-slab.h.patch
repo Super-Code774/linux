@@ -1,0 +1,113 @@
+From 09a5924a8724987e1b8ca26423ed286fc6a06d55 Mon Sep 17 00:00:00 2001
+From: Jann Horn <jannh@google.com>
+Date: Fri, 15 Sep 2023 10:59:22 +0000
+Subject: [PATCH 03/14] mm/slub: move kmem_cache_order_objects to slab.h
+
+This is refactoring for SLAB_VIRTUAL. The implementation needs to know
+the order of the virtual memory region allocated to each slab to know
+how much physical memory to allocate when the slab is reused. We reuse
+kmem_cache_order_objects for this, so we have to move it before struct
+slab.
+
+Signed-off-by: Jann Horn <jannh@google.com>
+Co-developed-by: Matteo Rizzo <matteorizzo@google.com>
+Signed-off-by: Matteo Rizzo <matteorizzo@google.com>
+---
+ include/linux/slub_def.h |  9 ---------
+ mm/slab.h                | 22 ++++++++++++++++++++++
+ mm/slub.c                | 12 ------------
+ 3 files changed, 22 insertions(+), 21 deletions(-)
+
+diff --git a/include/linux/slub_def.h b/include/linux/slub_def.h
+index deb90cf4bf..0adf5ba824 100644
+--- a/include/linux/slub_def.h
++++ b/include/linux/slub_def.h
+@@ -83,15 +83,6 @@ struct kmem_cache_cpu {
+ #define slub_percpu_partial_read_once(c)	NULL
+ #endif // CONFIG_SLUB_CPU_PARTIAL
+ 
+-/*
+- * Word size structure that can be atomically updated or read and that
+- * contains both the order and the number of objects that a slab of the
+- * given order would contain.
+- */
+-struct kmem_cache_order_objects {
+-	unsigned int x;
+-};
+-
+ /*
+  * Slab cache management.
+  */
+diff --git a/mm/slab.h b/mm/slab.h
+index 25e41dd608..3fe0d1e26e 100644
+--- a/mm/slab.h
++++ b/mm/slab.h
+@@ -38,6 +38,15 @@ typedef union {
+ 	freelist_full_t full;
+ } freelist_aba_t;
+ 
++/*
++ * Word size structure that can be atomically updated or read and that
++ * contains both the order and the number of objects that a slab of the
++ * given order would contain.
++ */
++struct kmem_cache_order_objects {
++	unsigned int x;
++};
++
+ /* Reuses the bits in struct page */
+ struct slab {
+ 	unsigned long __page_flags;
+@@ -227,6 +236,19 @@ static inline struct slab *virt_to_slab(const void *addr)
+ 	return folio_slab(folio);
+ }
+ 
++#define OO_SHIFT	16
++#define OO_MASK		((1 << OO_SHIFT) - 1)
++
++static inline unsigned int oo_order(struct kmem_cache_order_objects x)
++{
++	return x.x >> OO_SHIFT;
++}
++
++static inline unsigned int oo_objects(struct kmem_cache_order_objects x)
++{
++	return x.x & OO_MASK;
++}
++
+ static inline int slab_order(const struct slab *slab)
+ {
+ 	return folio_order((struct folio *)slab_folio(slab));
+diff --git a/mm/slub.c b/mm/slub.c
+index b69916ab7a..df2529c03b 100644
+--- a/mm/slub.c
++++ b/mm/slub.c
+@@ -284,8 +284,6 @@ static inline bool kmem_cache_has_cpu_partial(struct kmem_cache *s)
+  */
+ #define DEBUG_METADATA_FLAGS (SLAB_RED_ZONE | SLAB_POISON | SLAB_STORE_USER)
+ 
+-#define OO_SHIFT	16
+-#define OO_MASK		((1 << OO_SHIFT) - 1)
+ #define MAX_OBJS_PER_PAGE	32767 /* since slab.objects is u15 */
+ 
+ /* Internal SLUB flags */
+@@ -473,16 +471,6 @@ static inline struct kmem_cache_order_objects oo_make(unsigned int order,
+ 	return x;
+ }
+ 
+-static inline unsigned int oo_order(struct kmem_cache_order_objects x)
+-{
+-	return x.x >> OO_SHIFT;
+-}
+-
+-static inline unsigned int oo_objects(struct kmem_cache_order_objects x)
+-{
+-	return x.x & OO_MASK;
+-}
+-
+ #ifdef CONFIG_SLUB_CPU_PARTIAL
+ static void slub_set_cpu_partial(struct kmem_cache *s, unsigned int nr_objects)
+ {
+-- 
+2.43.0
+

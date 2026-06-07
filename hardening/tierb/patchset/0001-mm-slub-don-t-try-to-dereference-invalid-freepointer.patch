@@ -1,0 +1,36 @@
+From cf31f7203a9fd970b32023f6dec26c95eea588b2 Mon Sep 17 00:00:00 2001
+From: Matteo Rizzo <matteorizzo@google.com>
+Date: Fri, 15 Sep 2023 10:59:20 +0000
+Subject: [PATCH 01/14] mm/slub: don't try to dereference invalid freepointers
+
+slab_free_freelist_hook tries to read a freelist pointer from the
+current object even when freeing a single object. This is invalid
+because single objects don't actually contain a freelist pointer when
+they're freed and the memory contains other data. This causes problems
+for checking the integrity of freelist in get_freepointer.
+
+Signed-off-by: Matteo Rizzo <matteorizzo@google.com>
+---
+ mm/slub.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/mm/slub.c b/mm/slub.c
+index f794004813..a7dae207c2 100644
+--- a/mm/slub.c
++++ b/mm/slub.c
+@@ -1820,7 +1820,9 @@ static inline bool slab_free_freelist_hook(struct kmem_cache *s,
+ 
+ 	do {
+ 		object = next;
+-		next = get_freepointer(s, object);
++		/* Single objects don't actually contain a freepointer */
++		if (object != old_tail)
++			next = get_freepointer(s, object);
+ 
+ 		/* If object's reuse doesn't have to be delayed */
+ 		if (!slab_free_hook(s, object, slab_want_init_on_free(s))) {
+
+base-commit: 46a9ea6681907a3be6b6b0d43776dccc62cad6cf
+-- 
+2.43.0
+

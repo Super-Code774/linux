@@ -1,0 +1,125 @@
+From 753084e700d8b1fc4a5a850ba8bea6a7db72526b Mon Sep 17 00:00:00 2001
+From: Jann Horn <jannh@google.com>
+Date: Fri, 15 Sep 2023 10:59:21 +0000
+Subject: [PATCH 02/14] mm/slub: add is_slab_addr/is_slab_page helpers
+
+This is refactoring in preparation for adding two different
+implementations (for SLAB_VIRTUAL enabled and disabled).
+
+virt_to_folio(x) expands to _compound_head(virt_to_page(x)) and
+virt_to_head_page(x) also expands to _compound_head(virt_to_page(x))
+
+so PageSlab(virt_to_head_page(res)) should be equivalent to
+is_slab_addr(res).
+
+Signed-off-by: Jann Horn <jannh@google.com>
+Co-developed-by: Matteo Rizzo <matteorizzo@google.com>
+Signed-off-by: Matteo Rizzo <matteorizzo@google.com>
+---
+ include/linux/slab.h | 1 +
+ kernel/resource.c    | 2 +-
+ mm/slab.h            | 9 +++++++++
+ mm/slab_common.c     | 5 ++---
+ mm/slub.c            | 6 +++---
+ 5 files changed, 16 insertions(+), 7 deletions(-)
+
+diff --git a/include/linux/slab.h b/include/linux/slab.h
+index 8228d1276a..a2d82010d2 100644
+--- a/include/linux/slab.h
++++ b/include/linux/slab.h
+@@ -793,4 +793,5 @@ int slab_dead_cpu(unsigned int cpu);
+ #define slab_dead_cpu		NULL
+ #endif
+ 
++#define is_slab_addr(addr) folio_test_slab(virt_to_folio(addr))
+ #endif	/* _LINUX_SLAB_H */
+diff --git a/kernel/resource.c b/kernel/resource.c
+index b1763b2fd7..c829e5f972 100644
+--- a/kernel/resource.c
++++ b/kernel/resource.c
+@@ -158,7 +158,7 @@ static void free_resource(struct resource *res)
+ 	 * buddy and trying to be smart and reusing them eventually in
+ 	 * alloc_resource() overcomplicates resource handling.
+ 	 */
+-	if (res && PageSlab(virt_to_head_page(res)))
++	if (res && is_slab_addr(res))
+ 		kfree(res);
+ }
+ 
+diff --git a/mm/slab.h b/mm/slab.h
+index 799a315695..25e41dd608 100644
+--- a/mm/slab.h
++++ b/mm/slab.h
+@@ -169,6 +169,15 @@ static_assert(IS_ALIGNED(offsetof(struct slab, freelist), sizeof(freelist_aba_t)
+  */
+ #define slab_page(s) folio_page(slab_folio(s), 0)
+ 
++/**
++ * is_slab_page - Checks if a page is really a slab page
++ * @s: The slab
++ *
++ * Checks if s points to a slab page.
++ *
++ * Return: true if s points to a slab and false otherwise.
++ */
++#define is_slab_page(s) folio_test_slab(slab_folio(s))
+ /*
+  * If network-based swap is enabled, sl*b must keep track of whether pages
+  * were allocated from pfmemalloc reserves.
+diff --git a/mm/slab_common.c b/mm/slab_common.c
+index e99e821065..79102d24f0 100644
+--- a/mm/slab_common.c
++++ b/mm/slab_common.c
+@@ -1063,7 +1063,7 @@ void kfree(const void *object)
+ 		return;
+ 
+ 	folio = virt_to_folio(object);
+-	if (unlikely(!folio_test_slab(folio))) {
++	if (unlikely(!is_slab_addr(object))) {
+ 		free_large_kmalloc(folio, (void *)object);
+ 		return;
+ 	}
+@@ -1094,8 +1094,7 @@ size_t __ksize(const void *object)
+ 		return 0;
+ 
+ 	folio = virt_to_folio(object);
+-
+-	if (unlikely(!folio_test_slab(folio))) {
++	if (unlikely(!is_slab_addr(object))) {
+ 		if (WARN_ON(folio_size(folio) <= KMALLOC_MAX_CACHE_SIZE))
+ 			return 0;
+ 		if (WARN_ON(object != folio_address(folio)))
+diff --git a/mm/slub.c b/mm/slub.c
+index a7dae207c2..b69916ab7a 100644
+--- a/mm/slub.c
++++ b/mm/slub.c
+@@ -1259,7 +1259,7 @@ static int check_slab(struct kmem_cache *s, struct slab *slab)
+ {
+ 	int maxobj;
+ 
+-	if (!folio_test_slab(slab_folio(slab))) {
++	if (!is_slab_page(slab)) {
+ 		slab_err(s, slab, "Not a valid slab page");
+ 		return 0;
+ 	}
+@@ -1454,7 +1454,7 @@ static noinline bool alloc_debug_processing(struct kmem_cache *s,
+ 	return true;
+ 
+ bad:
+-	if (folio_test_slab(slab_folio(slab))) {
++	if (is_slab_page(slab)) {
+ 		/*
+ 		 * If this is a slab page then lets do the best we can
+ 		 * to avoid issues in the future. Marking all objects
+@@ -1484,7 +1484,7 @@ static inline int free_consistency_checks(struct kmem_cache *s,
+ 		return 0;
+ 
+ 	if (unlikely(s != slab->slab_cache)) {
+-		if (!folio_test_slab(slab_folio(slab))) {
++		if (!is_slab_page(slab)) {
+ 			slab_err(s, slab, "Attempt to free object(0x%p) outside of slab",
+ 				 object);
+ 		} else if (!slab->slab_cache) {
+-- 
+2.43.0
+

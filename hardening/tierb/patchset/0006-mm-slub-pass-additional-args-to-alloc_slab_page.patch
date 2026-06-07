@@ -1,0 +1,57 @@
+From 842f054dc9c955bbce3309a570a3f2ae13c10de8 Mon Sep 17 00:00:00 2001
+From: Jann Horn <jannh@google.com>
+Date: Fri, 15 Sep 2023 10:59:25 +0000
+Subject: [PATCH 06/14] mm/slub: pass additional args to alloc_slab_page
+
+This is refactoring in preparation for SLAB_VIRTUAL.
+
+The implementation of SLAB_VIRTUAL needs access to struct kmem_cache in
+alloc_slab_page in order to take unused slabs from the slab freelist,
+which is per-cache.
+
+In addition to that it passes two different sets of GFP flags.
+meta_gfp_flags is used for the memory backing the metadata region and
+page tables, and gfp_flags for the data memory.
+
+Signed-off-by: Jann Horn <jannh@google.com>
+Co-developed-by: Matteo Rizzo <matteorizzo@google.com>
+Signed-off-by: Matteo Rizzo <matteorizzo@google.com>
+---
+ mm/slub.c | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/mm/slub.c b/mm/slub.c
+index 9b87afade1..eaa1256aff 100644
+--- a/mm/slub.c
++++ b/mm/slub.c
+@@ -1869,7 +1869,8 @@ static void folio_clear_slab(struct folio *folio, struct slab *slab)
+ 	__folio_clear_slab(folio);
+ }
+ 
+-static inline struct slab *alloc_slab_page(gfp_t flags, int node,
++static inline struct slab *alloc_slab_page(struct kmem_cache *s,
++		gfp_t meta_flags, gfp_t flags, int node,
+ 		struct kmem_cache_order_objects oo)
+ {
+ 	struct folio *folio;
+@@ -2020,7 +2021,7 @@ static struct slab *allocate_slab(struct kmem_cache *s, gfp_t flags, int node)
+ 	if ((alloc_gfp & __GFP_DIRECT_RECLAIM) && oo_order(oo) > oo_order(s->min))
+ 		alloc_gfp = (alloc_gfp | __GFP_NOMEMALLOC) & ~__GFP_RECLAIM;
+ 
+-	slab = alloc_slab_page(alloc_gfp, node, oo);
++	slab = alloc_slab_page(s, flags, alloc_gfp, node, oo);
+ 	if (unlikely(!slab)) {
+ 		oo = s->min;
+ 		alloc_gfp = flags;
+@@ -2028,7 +2029,7 @@ static struct slab *allocate_slab(struct kmem_cache *s, gfp_t flags, int node)
+ 		 * Allocation may have failed due to fragmentation.
+ 		 * Try a lower order alloc if possible
+ 		 */
+-		slab = alloc_slab_page(alloc_gfp, node, oo);
++		slab = alloc_slab_page(s, flags, alloc_gfp, node, oo);
+ 		if (unlikely(!slab))
+ 			return NULL;
+ 		stat(s, ORDER_FALLBACK);
+-- 
+2.43.0
+

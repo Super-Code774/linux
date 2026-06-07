@@ -28,10 +28,12 @@ hardening/
     mkinitramfs.sh              # busybox initramfs that self-verifies + powers off
     boot.sh                     # QEMU boot, console capture, pass/fail verdict
     verify-config.sh            # reports actual =y/=n/absent state per symbol
-  patches/
-    README.md                   # Tier B outcome (SLAB_VIRTUAL: blocked)
+  tierb/                        # (named 'tierb' not 'patches' — kernel .gitignore ignores patches/)
+    README.md                   # Tier B outcome: Phase A WORKS on native base; Phase B = 7.1 forward-port
+    slab_virtual-reproduce.sh   # Phase A reproducer (fetch base, am, build, boot)
+    slab_virtual-PROOF-boot.log # Phase A runtime evidence (SLAB_VIRTUAL live)
     slab_virtual-thread.mbox.gz # archived LKML thread
-    series/slab_virtual-01..14-*.patch
+    patchset/0001..0014-*.patch   # the 14-patch series (regenerated with --base)
   REPORT.md                     # this file
 ```
 
@@ -143,17 +145,33 @@ used for the boot. On QEMU ≥ 9.0 re-run with `QEMU_CPU=max` to exercise them.
 
 ---
 
-## Tier B — out-of-tree (SLAB_VIRTUAL keystone): **BLOCKED**
+## Tier B — out-of-tree (SLAB_VIRTUAL keystone)
 
-See `patches/README.md` for the full table. Summary: the
-`[RFC PATCH 00/14] Prevent cross-cache attacks in the SLUB allocator` series
-(Rizzo/Horn, 2023-09-15, base `46a9ea668190` ≈ v6.6-rc1) does **not** rebase
-onto 7.1-rc6 — `git am --3way` fails on patch 01, and `git apply --check` shows
-only the 2 non-code patches (Kconfig 08, docs 14) apply; all 12 SLUB/x86 patches
-fail because the freepointer codec and folio→slab paths were rewritten upstream.
-Per the rules, no allocator internals were hand-written. **Not integrated.**
+The `[RFC PATCH 00/14] Prevent cross-cache attacks in the SLUB allocator` series
+(Rizzo/Horn, 2023-09-15, base `46a9ea668190`, v6.5-rc1-era). Full evidence and
+reproducer in `tierb/`.
 
-**Keystone consequence:** without address-space sequestering,
+### Phase A — VERIFIED WORKING on the series' native base ✅
+`git am` applies **14/14 cleanly** onto `46a9ea668190` (zero hand-edits); builds
+clean (x86_64, gcc, `SLAB_VIRTUAL=y`, KASAN off); **boots to userspace** in QEMU
+(`-cpu qemu64`); and the feature is **live at runtime**: `CONFIG_SLAB_VIRTUAL=y`
+in `/proc/config.gz`, the patch-12 `…/deallocated_pages` sysfs attr present, the
+`slab_virt_to_phys` symbol in kallsyms, and the kernel running entirely on
+virtual-memory slab allocation (patch-13 freepointer sanity checks pass
+throughout boot). This is a real, non-fabricated "it works" — **no allocator
+code hand-written.** Reproduce: `tierb/slab_virtual-reproduce.sh`.
+
+### Phase B — forward-port to the pinned 7.1-rc6
+The same series does **not** rebase onto 7.1-rc6 — `git am --3way` fails on patch
+01 (base blobs absent), and `git apply --check` shows only the 2 non-code patches
+(Kconfig 08, docs 14) apply; all 12 SLUB/x86 patches fail because
+`slab_free_freelist_hook` changed signature/moved and the freepointer codec +
+folio→slab paths were rewritten upstream. Per the rules, no SLUB/page-table
+internals are hand-written to force an apply. Status of the honest forward-port
+attempt is recorded below under "Phase B forward-port attempt".
+
+**Keystone consequence (for the 7.1 production profiles):** without address-space
+sequestering,
 `RANDOM_KMALLOC_CACHES` + `SLAB_BUCKETS` are **not** a cross-cache mitigation on
 their own and may be net-negative. They are shipped per spec but must not be
 counted as a cross-cache win. Typed caches (Tier B step 2) were **not** enabled
@@ -183,7 +201,7 @@ incompatible with KASAN/KFENCE, colliding with the arm64 `KASAN_HW_TAGS` profile
 | arm64 GCS runtime | built ✅, boot ⚠️ | QEMU 8.2 GCS emulation asserts; booted with `arm64.nogcs` |
 | x86 FineIBT runtime path | built ✅, boots via kCFI | QEMU TCG exposes no HW IBT; FineIBT needs real IBT silicon |
 | x86 user shadow stack exercise | built ✅, no userspace test | needs a CET userspace program; not in the minimal initramfs |
-| Tier B SLAB_VIRTUAL | blocked ❌ | RFC does not rebase onto 7.1-rc6 (see patches/README.md) |
+| Tier B SLAB_VIRTUAL | blocked ❌ | RFC does not rebase onto 7.1-rc6 (see tierb/README.md) |
 | Tier B typed kmalloc caches | not attempted | gated on SLAB_VIRTUAL per keystone rule |
 | Tier D (SPTM monitor, Rust rewrite) | out of scope | no in-tree equivalent / multi-year effort |
 
