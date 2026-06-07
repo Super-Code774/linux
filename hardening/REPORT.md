@@ -167,8 +167,28 @@ The same series does **not** rebase onto 7.1-rc6 — `git am --3way` fails on pa
 (Kconfig 08, docs 14) apply; all 12 SLUB/x86 patches fail because
 `slab_free_freelist_hook` changed signature/moved and the freepointer codec +
 folio→slab paths were rewritten upstream. Per the rules, no SLUB/page-table
-internals are hand-written to force an apply. Status of the honest forward-port
-attempt is recorded below under "Phase B forward-port attempt".
+internals are hand-written to force an apply.
+
+### Phase B forward-port attempt (honest result: NOT completed) ⚠️
+After fetching the native base commit, its `mm/slub.c` ancestor blobs are present,
+so `git am --3way` can run real 3-way merges onto 7.1-rc6 (evidence:
+`tierb/slab_virtual-PhaseB-71-conflict.log`). Result: **patch 01 already
+conflicts** — and the merge is not even meaningfully placeable: git interleaves
+*unrelated* `CONFIG_MEM_ALLOC_PROFILING_DEBUG` code against the patch's
+reconstructed `slab_free_freelist_hook` body, because that function moved
+(~line 1820 → 2693) and its whole neighborhood was rewritten. Resolving it
+requires **hand-authoring the freepointer-handling and virtual-slab allocator
+logic** against a 9,950-line rewritten SLUB — i.e. exactly the
+"do not hand-write SLUB/page-table/allocator internals" rule, and the precise
+class of change that silently corrupts memory if subtly wrong. I therefore
+**stopped without fabricating a result**: a kernel that merely compiled/booted
+would not prove the allocator is correct, and I will not present one as working.
+
+**Bottom line:** SLAB_VIRTUAL is *proven working* on its native base (Phase A);
+forward-porting it to 7.1-rc6 is a genuine porting project (re-deriving ~12
+allocator patches), not a mechanical rebase, and is out of safe scope for this
+task. The trustworthy artifact is Phase A + the documented Phase B conflict
+surface — not a hand-ported kernel of unknown correctness.
 
 **Keystone consequence (for the 7.1 production profiles):** without address-space
 sequestering,
@@ -201,7 +221,8 @@ incompatible with KASAN/KFENCE, colliding with the arm64 `KASAN_HW_TAGS` profile
 | arm64 GCS runtime | built ✅, boot ⚠️ | QEMU 8.2 GCS emulation asserts; booted with `arm64.nogcs` |
 | x86 FineIBT runtime path | built ✅, boots via kCFI | QEMU TCG exposes no HW IBT; FineIBT needs real IBT silicon |
 | x86 user shadow stack exercise | built ✅, no userspace test | needs a CET userspace program; not in the minimal initramfs |
-| Tier B SLAB_VIRTUAL | blocked ❌ | RFC does not rebase onto 7.1-rc6 (see tierb/README.md) |
+| Tier B SLAB_VIRTUAL on native base (v6.5) | **WORKS** ✅ | clean am + build + boot; feature live (Phase A) |
+| Tier B SLAB_VIRTUAL on 7.1-rc6 | blocked ⚠️ | 3-way merge conflicts from patch 01; completing it = hand-porting allocator (forbidden/unsafe) — Phase B |
 | Tier B typed kmalloc caches | not attempted | gated on SLAB_VIRTUAL per keystone rule |
 | Tier D (SPTM monitor, Rust rewrite) | out of scope | no in-tree equivalent / multi-year effort |
 
