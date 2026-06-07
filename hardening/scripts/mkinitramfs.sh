@@ -26,9 +26,18 @@ echo "===HARNESS-BOOT-OK==="
 echo "--- uname ---"; cat /proc/version
 echo "--- hardening config evidence (/proc/config.gz) ---"
 if [ -e /proc/config.gz ]; then
-  zcat /proc/config.gz | grep -E "^CONFIG_(INIT_ON_ALLOC_DEFAULT_ON|INIT_ON_FREE_DEFAULT_ON|INIT_STACK_ALL_ZERO|SLAB_FREELIST_HARDENED|RANDOM_KMALLOC_CACHES|SLAB_BUCKETS|HARDENED_USERCOPY|FORTIFY_SOURCE|SHUFFLE_PAGE_ALLOCATOR|BUG_ON_DATA_CORRUPTION|ZERO_CALL_USED_REGS|VMAP_STACK|CFI|X86_KERNEL_IBT|X86_USER_SHADOW_STACK|FINEIBT|RANDOMIZE_BASE|RANDOMIZE_MEMORY|ARM64_PTR_AUTH_KERNEL|ARM64_BTI_KERNEL|ARM64_MTE|KASAN_HW_TAGS|ARM64_GCS)=" | sort
+  zcat /proc/config.gz | grep -E "^CONFIG_(INIT_ON_ALLOC_DEFAULT_ON|INIT_ON_FREE_DEFAULT_ON|INIT_STACK_ALL_ZERO|SLAB_FREELIST_HARDENED|RANDOM_KMALLOC_CACHES|SLAB_BUCKETS|SLAB_VIRTUAL|HARDENED_USERCOPY|FORTIFY_SOURCE|SHUFFLE_PAGE_ALLOCATOR|BUG_ON_DATA_CORRUPTION|ZERO_CALL_USED_REGS|VMAP_STACK|CFI|X86_KERNEL_IBT|X86_USER_SHADOW_STACK|FINEIBT|RANDOMIZE_BASE|RANDOMIZE_MEMORY|ARM64_PTR_AUTH_KERNEL|ARM64_BTI_KERNEL|ARM64_MTE|KASAN_HW_TAGS|ARM64_GCS)=" | sort
 else
   echo "config.gz absent (IKCONFIG_PROC not set)"
+fi
+echo "--- SLUB virtual-memory evidence (SLAB_VIRTUAL) ---"
+if grep -q "CONFIG_SLAB_VIRTUAL=y" /proc/config.gz 2>/dev/null || zcat /proc/config.gz 2>/dev/null | grep -q "CONFIG_SLAB_VIRTUAL=y"; then
+  for c in /sys/kernel/slab/*/deallocated_pages; do
+    [ -e "$c" ] && { echo "deallocated_pages attr LIVE: $c = $(cat $c)"; break; }
+  done
+  dmesg | grep -iE "slab.*virtual|virtual.*slab|SLUB.*region" | head -3 || true
+else
+  echo "(SLAB_VIRTUAL not configured in this kernel)"
 fi
 echo "--- runtime mitigation dmesg lines ---"
 dmesg | grep -iE "kCFI|FineIBT|IBT|shadow stack|cet|pointer authentication|BTI|MTE|kasan|KASLR|init_on_alloc|randomiz|kernel control flow" || echo "(no matching dmesg lines)"
