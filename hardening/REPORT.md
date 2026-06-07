@@ -75,37 +75,39 @@ Legend: **Sym** = symbol exists in tree · **Set** = `=y` in produced .config ·
 
 ### Tier A — arch-neutral software (common fragment)
 
-| Feature (CONFIG_) | Sym | Set | Built (x86) | Booted (x86) | Test |
+| Feature (CONFIG_) | Sym | Set | Built (x86) | Booted (x86) | Test (x86) |
 |---|:--:|:--:|:--:|:--:|---|
-| INIT_ON_ALLOC_DEFAULT_ON | ✅ | ✅ | _pending_ | _pending_ | _pending_ |
-| INIT_ON_FREE_DEFAULT_ON | ✅ | ✅ | _pending_ | _pending_ | _pending_ |
-| INIT_STACK_ALL_ZERO | ✅ | ✅ | _pending_ | _pending_ | _pending_ |
-| SLAB_FREELIST_HARDENED | ✅ | ✅ | _pending_ | _pending_ | _pending_ |
-| SLAB_FREELIST_RANDOM | ✅ | ✅ | _pending_ | _pending_ | _pending_ |
-| RANDOM_KMALLOC_CACHES ⚠ | ✅ | ✅ | _pending_ | _pending_ | keystone-gated |
-| SLAB_BUCKETS ⚠ | ✅ | ✅ | _pending_ | _pending_ | keystone-gated |
-| SLAB_MERGE_DEFAULT=n | ✅ | ✅(n) | _pending_ | _pending_ | _pending_ |
-| HARDENED_USERCOPY | ✅ | ✅ | _pending_ | _pending_ | lkdtm USERCOPY_* |
-| FORTIFY_SOURCE | ✅ | ✅ | _pending_ | _pending_ | _pending_ |
-| SHUFFLE_PAGE_ALLOCATOR | ✅ | ✅ | _pending_ | _pending_ | _pending_ |
-| DEBUG_LIST | ✅ | ✅ | _pending_ | _pending_ | lkdtm CORRUPT_LIST_* |
-| BUG_ON_DATA_CORRUPTION | ✅ | ✅ | _pending_ | _pending_ | _pending_ |
-| STACKPROTECTOR(_STRONG) | ✅ | ✅ | _pending_ | _pending_ | _pending_ |
-| ZERO_CALL_USED_REGS | ✅ | ✅ | _pending_ | _pending_ | _pending_ |
-| VMAP_STACK | ✅ | ✅ | _pending_ | _pending_ | _pending_ |
+| INIT_ON_ALLOC_DEFAULT_ON | ✅ | ✅ | ✅ | ✅ | config.gz ✅ |
+| INIT_ON_FREE_DEFAULT_ON | ✅ | ✅ | ✅ | ✅ | config.gz ✅ |
+| INIT_STACK_ALL_ZERO | ✅ | ✅ | ✅ | ✅ | config.gz ✅ |
+| SLAB_FREELIST_HARDENED | ✅ | ✅ | ✅ | ✅ | config.gz ✅ |
+| SLAB_FREELIST_RANDOM | ✅ | ✅ | ✅ | ✅ | config.gz ✅ |
+| RANDOM_KMALLOC_CACHES ⚠ | ✅ | ✅ | ✅ | ✅ | config.gz ✅ (keystone-gated) |
+| SLAB_BUCKETS ⚠ | ✅ | ✅ | ✅ | ✅ | config.gz ✅ (keystone-gated) |
+| SLAB_MERGE_DEFAULT=n | ✅ | ✅(n) | ✅ | ✅ | config.gz ✅ |
+| HARDENED_USERCOPY | ✅ | ✅ | ✅ | ✅ | **lkdtm USERCOPY_KERNEL PASS** |
+| FORTIFY_SOURCE | ✅ | ✅ | ✅ | ✅ | **lkdtm FORTIFY_STR_MEMBER PASS** |
+| SHUFFLE_PAGE_ALLOCATOR | ✅ | ✅ | ✅ | ✅ | config.gz ✅ |
+| DEBUG_LIST | ✅ | ✅ | ✅ | ✅ | **lkdtm CORRUPT_LIST_ADD PASS** |
+| BUG_ON_DATA_CORRUPTION | ✅ | ✅ | ✅ | ✅ | **lkdtm CORRUPT_LIST_ADD PASS** |
+| STACKPROTECTOR(_STRONG) | ✅ | ✅ | ✅ | ✅ | config.gz ✅ |
+| ZERO_CALL_USED_REGS | ✅ | ✅ | ✅ | ✅ | config.gz ✅ |
+| VMAP_STACK | ✅ | ✅ | ✅ | ✅ | config.gz ✅ |
 
-⚠ keystone-gated — see Tier B.
+⚠ keystone-gated — see Tier B. "config.gz ✅" = symbol confirmed `=y` in the
+running kernel via `/proc/config.gz`; **bold lkdtm** = active enforcement
+observed (kernel trapped the injected violation and panicked).
 
 ### Tier C — x86_64
 
 | Feature (CONFIG_) | Sym | Set | Built | Booted | Test |
 |---|:--:|:--:|:--:|:--:|---|
-| CFI (kCFI) | ✅ | ✅ | _pending_ | _pending_ | lkdtm CFI_FORWARD_PROTO |
-| X86_KERNEL_IBT | ✅ | ✅ | _pending_ | _pending_ | dmesg "CET detected" / FineIBT |
-| FINEIBT (auto) | ✅ | ✅ | _pending_ | _pending_ | dmesg |
-| X86_USER_SHADOW_STACK | ✅ | ✅ | _pending_ | _pending_ | dmesg |
-| X86_UMIP | ✅ | ✅ | _pending_ | _pending_ | _pending_ |
-| RANDOMIZE_BASE / _MEMORY | ✅ | ✅ | _pending_ | _pending_ | KASLR offset |
+| CFI (kCFI) | ✅ | ✅ | ✅ | ✅ | **lkdtm CFI_FORWARD_PROTO PASS** (`CFI failure ... expected type 0x990a1c0a`); dmesg `CFI: Using rehashed retpoline kCFI` |
+| X86_KERNEL_IBT | ✅ | ✅ | ✅ | ✅ | config.gz ✅ (HW IBT not exposed by QEMU TCG → kCFI path used; degrades cleanly) |
+| FINEIBT (auto) | ✅ | ✅ | ✅ | ✅ | config.gz ✅ (selected; runtime uses kCFI as TCG lacks HW IBT) |
+| X86_USER_SHADOW_STACK | ✅ | ✅ | ✅ | ✅ | config.gz ✅ |
+| X86_UMIP | ✅ | ✅ | ✅ | ✅ | config.gz ✅ |
+| RANDOMIZE_BASE / _MEMORY | ✅ | ✅ | ✅ | ✅ | config.gz ✅ |
 
 ### Tier C — arm64
 
@@ -163,4 +165,8 @@ incompatible with KASAN/KFENCE, colliding with the arm64 `KASAN_HW_TAGS` profile
   strongest (precise faults) but costliest; async is the typical prod default.
   Not hard-wired to sync.
 - FineIBT is selected automatically and enabled by default at boot
-  (`CFI_AUTO_DEFAULT=y`).
+  (`CFI_AUTO_DEFAULT=y`) **on IBT-capable hardware**. Under QEMU TCG (no HW IBT)
+  the kernel cleanly falls back to plain kCFI (`CFI: Using rehashed retpoline
+  kCFI` in dmesg) — a concrete demonstration of "enforce where present, degrade
+  to a clean path where the silicon is absent." Forward-edge CFI enforcement is
+  still active in that fallback (verified by lkdtm CFI_FORWARD_PROTO).
